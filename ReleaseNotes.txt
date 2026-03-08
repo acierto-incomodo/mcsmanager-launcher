@@ -1,7 +1,7 @@
 Cambios
-- v1.0.1
+- v1.0.5
 
-Launcher (v1.0.1):
+Launcher (v1.0.6):
 - NaN
 
 Node: v20.20.0

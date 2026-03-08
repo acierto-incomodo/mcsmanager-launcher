@@ -181,3 +181,5 @@ cython_debug/
 .cursorindexingignore
 
 /publish
+/files
+/panel-local/node_modules

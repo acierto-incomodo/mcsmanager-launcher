@@ -39,7 +39,18 @@ if WEB_DIR.is_dir():
     # start node_app.exe --enable-source-maps --max-old-space-size=8192 app.js --open
     print(f"Iniciando proceso Web en {WEB_DIR}...")
     subprocess.Popen(
-        [str(WEB_DIR / "node_app.exe"), "--enable-source-maps", "--max-old-space-size=8192", "app.js", "--open"],
+        [str(WEB_DIR / "node_app.exe"), "--enable-source-maps", "--max-old-space-size=8192", "app.js"],
         cwd=WEB_DIR,
         creationflags=creation_flags
     )
+    
+# if exist "%WEB_DIR%" con abrir pagina web (
+# if WEB_DIR.is_dir():
+    # cd /d "%WEB_DIR%"
+    # start node_app.exe --enable-source-maps --max-old-space-size=8192 app.js --open
+    # print(f"Iniciando proceso Web en {WEB_DIR}...")
+    # subprocess.Popen(
+        # [str(WEB_DIR / "node_app.exe"), "--enable-source-maps", "--max-old-space-size=8192", "app.js", "--open"],
+        # cwd=WEB_DIR,
+        # creationflags=creation_flags
+    # )

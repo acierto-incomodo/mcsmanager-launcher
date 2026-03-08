@@ -3,30 +3,43 @@ import sys
 import os
 import shutil
 import zipfile
+import json
 import subprocess
 from pathlib import Path
+import time
 from threading import Thread
+
+# Filtrar advertencias de dependencias de requests
+import warnings
+warnings.filterwarnings("ignore", message=".*urllib3.*")
 
 import requests
 from PySide6 import QtCore, QtWidgets, QtGui
 
 # ---------------- CONFIG ------------------
 
-LAUNCHER_VERSION = "1.0.1"
+LAUNCHER_VERSION = "1.0.6"
 
 # Windows build is split into two parts
 BUILD_URL_WIN_PART1 = "https://github.com/acierto-incomodo/mcsmanager-launcher/releases/latest/download/Build.zip"
 BUILD_URL_LINUX = "https://github.com/acierto-incomodo/mcsmanager-launcher/releases/latest/download/Build.zip"
+START_EXE_URL = "https://github.com/acierto-incomodo/mcsmanager-launcher/releases/latest/download/start.exe"
+USER_ZIP_URL = "https://github.com/acierto-incomodo/mcsmanager-launcher/releases/latest/download/user.zip"
 VERSION_URL = "https://github.com/acierto-incomodo/mcsmanager-launcher/releases/latest/download/version.txt"
 RELEASE_NOTES_URL = "https://github.com/acierto-incomodo/mcsmanager-launcher/releases/latest/download/ReleaseNotes.txt"
 
-EXE_NAME_WIN   = "start.bat"
-EXE_NAME_LINUX = "start.bat"
+EXE_NAME_WIN   = "start.exe"
+EXE_NAME_LINUX = "start.exe"
 
 DOWNLOAD_DIR = Path.cwd() / "downloads"
 GAME_DIR     = Path.cwd() / "files"
 VERSION_FILE = GAME_DIR / "version.txt"
 BUILD_DIR    = GAME_DIR / "mcsmanager"
+API_KEY_FILE = GAME_DIR / "api_key.txt"
+DAEMON_CONFIG_FILE = BUILD_DIR / "daemon" / "data" / "config.json"
+WEB_URL = "http://localhost:24444"
+DEFAULT_API_KEY = "a601cbad524241d2b672393f30e85773"
+
 
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 GAME_DIR.mkdir(parents=True, exist_ok=True)
@@ -51,6 +64,127 @@ def download_file(url: str, dest: Path, progress_callback=None, chunk_size=8192)
                 progress_callback(downloaded, total)
 
     return dest
+
+
+def are_panel_processes_running():
+    """Checks if MCSManager panel processes are already running."""
+    if not sys.platform.startswith("win"):
+        return False # Simplified for this request, focusing on Windows
+
+    try:
+        # Use tasklist on Windows. CREATE_NO_WINDOW flag hides the console.
+        result = subprocess.run(
+            ['tasklist', '/FI', 'IMAGENAME eq node_app.exe'],
+            capture_output=True, text=True,
+            creationflags=0x08000000 # CREATE_NO_WINDOW
+        )
+        # 'node_app.exe' will be in the output if the process is running.
+        return 'node_app.exe' in result.stdout.lower()
+    except FileNotFoundError:
+        print("Warning: tasklist.exe not found. Cannot check for running processes.")
+        return False # Assume not running if we can't check
+    except Exception as e:
+        print(f"An unexpected error occurred while checking processes: {e}")
+        return False
+
+
+def graceful_shutdown():
+    """Tries to gracefully stop all running MCSManager instances via API."""
+    try:
+        if not DAEMON_CONFIG_FILE.exists():
+            print("INFO: Daemon config not found, skipping graceful shutdown.")
+            return
+
+        api_key = API_KEY_FILE.read_text(encoding="utf-8").strip() if API_KEY_FILE.exists() else ""
+        if not api_key:
+            # Use default key if file is missing or empty
+            api_key = DEFAULT_API_KEY
+
+        with open(DAEMON_CONFIG_FILE, "r", encoding="utf-8") as f:
+            daemon_config = json.load(f)
+        daemon_id = daemon_config.get("uuid")
+        if not daemon_id:
+            print("ERROR: Could not find daemonId in config.json.")
+            return
+
+        print("Attempting graceful shutdown of instances...")
+        headers = {"X-Requested-With": "XMLHttpRequest"}
+        
+        # 1. Get list of instances
+        instances_url = f"{WEB_URL}/api/service/remote_service_instances"
+        instances_params = {
+            "apikey": api_key,
+            "daemonId": daemon_id,
+            "page": 1,
+            "page_size": 999,
+        }
+        
+        resp = requests.get(instances_url, params=instances_params, headers=headers, timeout=5)
+        resp.raise_for_status()
+        instances_data = resp.json()
+
+        if instances_data.get("status") != 200:
+            print(f"API Error getting instances: {instances_data.get('data')}")
+            return
+
+        running_instances = []
+        instance_list = instances_data.get("data", {}).get("data", [])
+        if not instance_list:
+            print("No instances found on daemon.")
+            return
+
+        for instance in instance_list:
+            if instance.get("status") == 3:  # 3 = running
+                running_instances.append(instance.get("instanceUuid"))
+
+        if not running_instances:
+            print("No running instances to stop.")
+            return
+
+        # 2. Stop each running instance
+        print(f"Found {len(running_instances)} running instance(s). Sending stop commands...")
+        stop_url = f"{WEB_URL}/api/protected_instance/stop"
+        for instance_uuid in running_instances:
+            stop_params = {
+                "apikey": api_key,
+                "daemonId": daemon_id,
+                "uuid": instance_uuid,
+            }
+            requests.get(stop_url, params=stop_params, headers=headers, timeout=5)
+            print(f"  - Stop command sent to instance {instance_uuid[:8]}...")
+        
+        print("Waiting 5 seconds for instances to stop...")
+        time.sleep(5)
+        print("Graceful shutdown attempt finished.")
+
+    except requests.exceptions.RequestException:
+        print("ERROR: Network error contacting MCSManager API. Is the panel running on port 24444?")
+    except Exception as e:
+        print(f"ERROR during graceful shutdown: {e}")
+
+
+def kill_running_processes():
+    # 1. Attempt graceful shutdown of instances via API
+    graceful_shutdown()
+
+    # 2. Force kill the panel's processes
+    if not sys.platform.startswith("win"):
+        return
+
+    print("Forcibly terminating panel processes (start.exe, node_app.exe)...")
+    processes_to_kill = ["start.exe", "node_app.exe"]
+    for process_name in processes_to_kill:
+        try:
+            # Use taskkill to forcefully terminate the process
+            # /F for force, /IM for image name.
+            subprocess.run(
+                ["taskkill", "/F", "/IM", process_name],
+                check=False, capture_output=True
+            )
+        except (FileNotFoundError, Exception):
+            # Ignore errors (e.g., taskkill not found, no permissions, process not running)
+            pass
+    print("Panel processes terminated.")
 
 
 def clean_old_version(target_dir: Path):
@@ -90,10 +224,9 @@ def start_game_process():
     if not sys.platform.startswith("win"):
         exe.chmod(0o755)
 
-    if sys.platform.startswith("win"):
-        os.startfile(str(exe))
-    else:
-        subprocess.Popen([str(exe)], cwd=str(exe.parent))
+    # os.startfile no establece el directorio de trabajo, lo que causa que start.exe falle.
+    # Usamos subprocess.Popen y establecemos el 'cwd' al directorio que contiene el ejecutable.
+    subprocess.Popen([str(exe)], cwd=str(exe.parent))
 
 # --------------- GUI ----------------------
 
@@ -128,7 +261,7 @@ class LauncherWindow(QtWidgets.QWidget):
         btn_layout = QtWidgets.QHBoxLayout()
         self.btn_check  = QtWidgets.QPushButton("Buscar actualización")
         self.btn_update = QtWidgets.QPushButton("Actualizar")
-        self.btn_start  = QtWidgets.QPushButton("Iniciar juego")
+        self.btn_start  = QtWidgets.QPushButton("Iniciar panel")
 
         self.btn_cancel_autostart = QtWidgets.QPushButton("Cancelar inicio")
         self.btn_cancel_autostart.setVisible(False)
@@ -146,9 +279,11 @@ class LauncherWindow(QtWidgets.QWidget):
 
         self.btn_open_folder = QtWidgets.QPushButton("Abrir ubicación")
         self.btn_delete_data = QtWidgets.QPushButton("Eliminar datos")
+        self.btn_open_web = QtWidgets.QPushButton("Abrir Web")
 
         tools_layout.addWidget(self.btn_open_folder)
         tools_layout.addWidget(self.btn_delete_data)
+        tools_layout.addWidget(self.btn_open_web)
 
         layout.addLayout(tools_layout)
         # ------------------------------------------
@@ -199,6 +334,7 @@ class LauncherWindow(QtWidgets.QWidget):
         # nuevas señales
         self.btn_open_folder.clicked.connect(self.open_location)
         self.btn_delete_data.clicked.connect(self.delete_data)
+        self.btn_open_web.clicked.connect(self.open_web)
 
         self.btn_update.setEnabled(False)
 
@@ -209,11 +345,11 @@ class LauncherWindow(QtWidgets.QWidget):
         if VERSION_FILE.exists():
             try:
                 content = VERSION_FILE.read_text(encoding="utf-8").strip()
-                self.version_display.setText(content or "Necesitas descargar el juego")
+                self.version_display.setText(content or "Necesitas descargar el panel")
             except:
-                self.version_display.setText("Necesitas descargar el juego")
+                self.version_display.setText("Necesitas descargar el panel")
         else:
-            self.version_display.setText("Necesitas descargar el juego")
+            self.version_display.setText("Necesitas descargar el panel")
 
     # ------------ NUEVA FUNCIÓN: ABRIR UBICACIÓN ------------
 
@@ -224,9 +360,20 @@ class LauncherWindow(QtWidgets.QWidget):
         else:
             subprocess.Popen(["xdg-open", folder])
 
+    # ------------ NUEVA FUNCIÓN: ABRIR WEB ------------
+
+    def open_web(self):
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl("http://localhost:23333"))
+
     # ------------ NUEVA FUNCIÓN: ELIMINAR DATOS ------------
 
     def delete_data(self):
+        # Cerrar procesos antes de eliminar para evitar errores de "archivo en uso"
+        self.set_status("Cerrando procesos existentes...")
+        kill_running_processes()
+        # Dar un momento para que los procesos terminen
+        time.sleep(2)
+
         try:
             if DOWNLOAD_DIR.exists():
                 shutil.rmtree(DOWNLOAD_DIR)
@@ -278,7 +425,8 @@ class LauncherWindow(QtWidgets.QWidget):
             self.set_status(f"Nueva versión disponible: {latest}. Actualizando automáticamente...")
             self.on_update()  # llama directamente al update
         else:
-            self.set_status("Tu juego está actualizado.")
+            self.set_status("Tu panel está actualizado.")
+            self.start_autostart_countdown()
 
     @QtCore.Slot(str)
     def on_check_failed(self, err):
@@ -301,6 +449,12 @@ class LauncherWindow(QtWidgets.QWidget):
 
     def _update_thread(self):
         try:
+            # Cerrar procesos existentes antes de actualizar
+            self.set_status("Cerrando procesos existentes...")
+            kill_running_processes()
+            # Dar un momento para que los procesos y los identificadores de archivo se liberen
+            time.sleep(2)
+
             if sys.platform.startswith("win"):
                 downloads = [
                     (BUILD_URL_WIN_PART1, "Build.zip"),
@@ -334,6 +488,23 @@ class LauncherWindow(QtWidgets.QWidget):
                     zip_path.unlink()
                 except Exception:
                     pass
+
+            if sys.platform.startswith("win"):
+                self.set_status("Descargando start.exe...")
+                start_exe_path = BUILD_DIR / "start.exe"
+                download_file(START_EXE_URL, start_exe_path)
+
+            # Siempre descargar y extraer la configuración del usuario, sobreescribiendo los archivos existentes.
+            self.set_status("Descargando configuración de usuario...")
+            user_zip_path = DOWNLOAD_DIR / "user.zip"
+            try:
+                download_file(USER_ZIP_URL, user_zip_path)
+                self.set_status("Extrayendo configuración de usuario...")
+                # Se extrae en la raíz de la instalación (mcsmanager) para que las rutas
+                # internas del zip (ej: web/data/User/...) se coloquen correctamente.
+                extract_zip(user_zip_path, BUILD_DIR)
+            except Exception as e:
+                print(f"Error al descargar/extraer user.zip: {e}")
 
             self.set_status("Descargando version.txt...")
             version = requests.get(VERSION_URL, timeout=30).text.strip()
@@ -411,6 +582,21 @@ class LauncherWindow(QtWidgets.QWidget):
     # ------------ START ----------
 
     def on_start(self):
+        # Stop autostart timer if running (e.g. manual start click)
+        if hasattr(self, 'autostart_timer') and self.autostart_timer.isActive():
+            self.autostart_timer.stop()
+            self.btn_cancel_autostart.setVisible(False)
+
+        # Check if the panel is already running
+        if are_panel_processes_running():
+            self.set_status("El panel ya se encuentra en ejecución.")
+            return
+
+        # Cerrar instancias anteriores antes de iniciar una nueva
+        self.set_status("Cerrando instancias anteriores...")
+        kill_running_processes()
+        time.sleep(1)
+
         try:
             start_game_process()
             # Cerrar el launcher

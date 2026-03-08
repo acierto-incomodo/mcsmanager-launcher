@@ -1,0 +1,56 @@
+{
+  "name": "panel-local",
+  "version": "1.0.0",
+  "description": "Electron wrapper for MCSManager Panel",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/acierto-incomodo/mcsmanager-launcher.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^31.0.1",
+    "electron-builder": "^24.13.3"
+  },
+  "dependencies": {
+    "electron-updater": "^6.2.1"
+  },
+  "build": {
+    "appId": "com.stormgamesstudios.mcsmanager-panel",
+    "productName": "MCSManager Panel",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "error.html",
+      "updates.html",
+      "renderer.js",
+      "style.css"
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "acierto-incomodo",
+      "repo": "mcsmanager-launcher"
+    },
+    "win": {
+      "icon": "../mcsmanager-launcher.ico",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    }
+  }
+}

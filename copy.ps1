@@ -41,6 +41,13 @@ foreach ($ext in $extensions) {
     }
 }
 
-Remove-Item -LiteralPath installer_updater.exe -Force -ErrorAction SilentlyContinue
+# Eliminar installer_updater.exe de la carpeta publish
+$updaterExePath = Join-Path $publishFolder "installer_updater.exe"
+if (Test-Path $updaterExePath) {
+    Remove-Item $updaterExePath -Force
+    Write-Host "Eliminado 'installer_updater.exe' de la carpeta de publicación."
+}
+
+
 
 Write-Host "Todos los archivos copiados en '$publishFolder'"

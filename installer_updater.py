@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 import sys
 import os
+
+import warnings
+warnings.filterwarnings("ignore", message=".*urllib3.*")
+
 import requests
 from pathlib import Path
 from threading import Thread
