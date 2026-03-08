@@ -41,4 +41,6 @@ foreach ($ext in $extensions) {
     }
 }
 
+Remove-Item -LiteralPath installer_updater.exe -Force -ErrorAction SilentlyContinue
+
 Write-Host "Todos los archivos copiados en '$publishFolder'"
