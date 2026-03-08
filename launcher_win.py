@@ -12,7 +12,7 @@ from PySide6 import QtCore, QtWidgets, QtGui
 
 # ---------------- CONFIG ------------------
 
-LAUNCHER_VERSION = "1.0.0"
+LAUNCHER_VERSION = "1.0.1"
 
 # Windows build is split into two parts
 BUILD_URL_WIN_PART1 = "https://github.com/acierto-incomodo/mcsmanager-launcher/releases/latest/download/Build.zip"
@@ -303,7 +303,7 @@ class LauncherWindow(QtWidgets.QWidget):
         try:
             if sys.platform.startswith("win"):
                 downloads = [
-                    (BUILD_URL_WIN_PART1, "Part1.zip"),
+                    (BUILD_URL_WIN_PART1, "Build.zip"),
                 ]
             else:
                 downloads = [

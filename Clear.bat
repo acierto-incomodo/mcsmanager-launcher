@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-set "folders=build dist downloads game theshooterlauncher_deb snap WinDownloads"
+set "folders=build dist downloads game theshooterlauncher_deb snap WinDownloads publish"
 for %%f in (%folders%) do (
   if exist "%%~f\" (
     echo Eliminando carpeta: %%f

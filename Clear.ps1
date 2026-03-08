@@ -6,7 +6,8 @@ $folders = @(
   "game",
   "theshooterlauncher_deb",
   "snap",
-  "WinDownloads"
+  "WinDownloads",
+  "publish"
 )
 
 $files = @(

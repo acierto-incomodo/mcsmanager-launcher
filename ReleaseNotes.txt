@@ -1,7 +1,9 @@
 Cambios
+- v1.0.1
 
-Launcher (v1.0.0):
+Launcher (v1.0.1):
 - NaN
 
-Juego (v1.0.0):
-- NaN
+Node: v20.20.0
+Panel: v10.12.4
+Daemon: v4.12.2
